@@ -17,6 +17,81 @@ This take-home focuses on **data** and **workflow**. **Pick one assignment.** Do
 
 Both are judged on the same bar. Pick the one that excites you more.
 
+## Solution: Assignment A (Interaction Ledger & Reporting Pipeline)
+
+This repository contains the complete, production-grade implementation for **Assignment A**.
+
+### 🚀 Quick Start: How to Run
+
+#### 1. Setup Environment
+```bash
+python -m venv .venv
+# On Linux/macOS:
+source .venv/bin/activate
+# On Windows PowerShell:
+.venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+```
+
+#### 2. Generate Synthetic Data
+```bash
+python assignment-a-data/tools/generate_data.py --seed 42 --scale small --out data
+```
+
+#### 3. Run Pipeline (Ingestion & Reporting)
+```bash
+# Ingest Drop 1
+python run.py ingest data/drop_1
+
+# Ingest Drop 2
+python run.py ingest data/drop_2
+
+# Generate all 5 required reports
+python run.py report --out reports/
+```
+
+#### 4. Run Automated Test Suite
+```bash
+pytest
+```
+*(All 20 unit and integration tests pass in ~1.5s)*
+
+---
+
+### 💻 Windows PowerShell / Batch Quick Runners
+For Windows users, interactive helper runners are included:
+* **Interactive Batch Menu:** Run `.\run_pipeline.bat` in PowerShell / Command Prompt.
+* **PowerShell Automation:** Run `.\run_pipeline.ps1 -Action all`.
+
+---
+
+### ⚙️ How the Pipeline Works (Under the Hood)
+
+1. **Lead Ingestion (`solution/ingest_leads.py`):**
+   - **Header Mapping:** Normalizes CSV headers and matches them against schema fields and aliases.
+   - **Validation & Strict Rejection:** Evaluates rows in schema order. Rejects invalid phones (`invalid_phone`) or missing required fields (`missing_required:<field>`) into `reports/rejections.csv`.
+   - **Deduplication & Merging:** Groups leads by `(workflow_id, canonical_phone)`. Locks the permanent `batch_id` to the first valid file stem and updates later rows via last-write-wins merging for non-null attributes.
+   - **PII Protection:** Phone numbers are hashed using deterministic HMAC-SHA256 for O(1) indexed joins. Raw customer names and phone numbers are encrypted with AES-128 (Fernet) at rest.
+
+2. **Event Ledger (`solution/ingest_events.py`):**
+   - **Immutable Event Sourcing:** Events stream into an append-only interaction ledger (`interaction_ledger`). Overrides (`disposition.override`) append new records without deleting or modifying original events.
+   - **Orphan Handling & Retroactive Reconciliation:** Events that arrive before their corresponding lead are quarantined. Once the lead arrives in a subsequent drop, orphaned events are linked immediately.
+
+3. **High-Speed SQL Aggregation (`solution/aggregator.py` & `solution/reports.py`):**
+   - Materializes indexed temporary tables (`temp_counted_calls`, `temp_lead_summary`) to compute derived facts in single-pass operations.
+   - Generates exact contract outputs into `reports/`:
+     - `batch_summary.csv`: Lead counts broken down across the 4 buckets per batch.
+     - `daily_overview.csv`: Daily call volumes, connectivity rates (4 decimals), and distinct success leads.
+     - `lead_report.csv`: Masked phone numbers, buckets, and latest disposition per lead.
+     - `rejections.csv`: Detailed rejection audit log without PII.
+     - `data_quality.json`: Pipeline data health metrics.
+
+4. **Strict Idempotency:**
+   - Tracks file content hashes in `ingested_files`. Re-running `ingest data/drop_1` changes nothing and preserves exact data quality metrics.
+
+---
+
 ## Ground rules
 
 - **Time box:** plan for about **6–8 focused hours**. You have **72 hours** from when you receive
